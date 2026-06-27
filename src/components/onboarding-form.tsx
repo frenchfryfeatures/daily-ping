@@ -136,6 +136,11 @@ export function OnboardingForm() {
           <div className="mt-5 rounded-md border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground">
             Consent captured: WhatsApp daily text, reply-triggered voice note, social-channel follow-up preferences, opt-out rights, and wellness/entertainment framing.
           </div>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <a className="hover:text-foreground" href="/opt-in">WhatsApp opt-in</a>
+            <a className="hover:text-foreground" href="/privacy">Privacy policy</a>
+            <a className="hover:text-foreground" href="/terms">Terms of use</a>
+          </div>
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <button
               className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"

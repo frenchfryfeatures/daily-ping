@@ -57,6 +57,22 @@ export type UserRow = {
   lastVoiceRequestedAt: string | null;
 };
 
+export type VoiceReviewRow = {
+  id: string;
+  userId: string;
+  userName: string;
+  phone: string;
+  label: string;
+  languageCode: string;
+  status: string;
+  consentEvidenceUrl: string | null;
+  submittedAt: string;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  revokedAt: string | null;
+  deletedAt: string | null;
+};
+
 export type ContentRow = {
   id: string;
   category: string;
@@ -147,6 +163,10 @@ export type DashboardSnapshot = {
     body: string;
     variables: string[];
   }[];
+  voiceReview: {
+    queue: VoiceReviewRow[];
+    pendingCount: number;
+  };
   audit: {
     actor: string;
     type: string;

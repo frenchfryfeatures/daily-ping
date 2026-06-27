@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ComponentType } from "react";
+import type { ComponentType, FormEvent } from "react";
 import type { ReactNode } from "react";
 import {
   Activity,
@@ -35,15 +35,16 @@ import {
   Wallet,
   Zap,
 } from "lucide-react";
-import type { AnalyticsPoint, DashboardSnapshot, DispatchRow, Kpi, SegmentRow, UserRow } from "@/types/dashboard";
+import type { AnalyticsPoint, DashboardSnapshot, DispatchRow, Kpi, SegmentRow, UserRow, VoiceReviewRow } from "@/types/dashboard";
 import { cn, titleCase } from "@/lib/utils";
 
-type Tab = "command" | "channels" | "users" | "costs" | "content" | "analytics" | "db";
+type Tab = "command" | "channels" | "users" | "voice" | "costs" | "content" | "analytics" | "db";
 
 const tabs: { id: Tab; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { id: "command", label: "Command", icon: Clock3 },
   { id: "channels", label: "Channels", icon: Send },
   { id: "users", label: "Users", icon: Users },
+  { id: "voice", label: "Voice Review", icon: Mic2 },
   { id: "costs", label: "Cost Desk", icon: Wallet },
   { id: "content", label: "Content", icon: SlidersHorizontal },
   { id: "analytics", label: "Analytics", icon: BarChart3 },
@@ -262,6 +263,55 @@ export function DailyPingDashboard({ snapshot }: { snapshot: DashboardSnapshot }
     );
   }
 
+  async function voiceReviewAction(row: VoiceReviewRow, action: "approve" | "revoke" | "delete") {
+    const reason = window.prompt(`Reason for ${action} of ${row.userName}'s "${row.label}" voice profile?`);
+    if (!reason) return;
+    setNotice(`Recording voice ${action} for ${row.userName}...`);
+    const response = await fetch(`/api/admin/voice-requests/${row.id}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    const data = (await response.json()) as { ok: boolean; error?: string; demo?: boolean; status?: string };
+    setNotice(
+      data.ok
+        ? `${row.userName}'s voice profile ${action}d.${data.demo ? " Demo mode: not persisted." : ""}`
+        : data.error ?? `Voice ${action} failed.`,
+    );
+    if (data.ok) setTimeout(() => location.reload(), 600);
+  }
+
+  async function submitVoiceRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const userId = String(formData.get("userId") ?? "").trim();
+    const label = String(formData.get("label") ?? "").trim();
+    const languageCode = String(formData.get("languageCode") ?? "").trim();
+    const consentEvidenceUrl = String(formData.get("consentEvidenceUrl") ?? "").trim();
+    const consentText = String(formData.get("consentText") ?? "").trim();
+    if (!userId || !label || !consentEvidenceUrl || !consentText) {
+      setNotice("Subscriber, label, consent artifact URL, and consent text are all required.");
+      return;
+    }
+    setNotice("Submitting custom voice request for manual review...");
+    const response = await fetch("/api/voice/custom-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, label, languageCode, consentEvidenceUrl, consentText }),
+    });
+    const data = (await response.json()) as { ok: boolean; error?: string; demo?: boolean; status?: string };
+    setNotice(
+      data.ok
+        ? `Custom voice request queued for manual review.${data.demo ? " Demo mode: not persisted." : ""}`
+        : data.error ?? "Custom voice request failed.",
+    );
+    if (data.ok) {
+      form.reset();
+      setTimeout(() => location.reload(), 600);
+    }
+  }
+
   return (
     <main className="daily-ping-surface min-h-screen p-3 sm:p-5">
       <div className="mx-auto flex max-w-[1640px] flex-col gap-4 lg:flex-row">
@@ -359,6 +409,9 @@ export function DailyPingDashboard({ snapshot }: { snapshot: DashboardSnapshot }
               setScheduleDraft={setScheduleDraft}
               snapshotGeneratedAt={snapshot.generatedAt}
             />
+          ) : null}
+          {activeTab === "voice" ? (
+            <VoiceReviewPanel queue={snapshot.voiceReview.queue} onSubmit={submitVoiceRequest} onAction={voiceReviewAction} />
           ) : null}
           {activeTab === "costs" ? <CostPanel snapshot={snapshot} /> : null}
           {activeTab === "content" ? <ContentPanel snapshot={snapshot} /> : null}
@@ -830,6 +883,138 @@ function UsersPanel({
       ) : (
         <EmptyState title="No users match this filter" detail="Clear the search or onboard a pilot user to continue." />
       )}
+    </section>
+  );
+}
+
+function VoiceReviewPanel({
+  queue,
+  onSubmit,
+  onAction,
+}: {
+  queue: VoiceReviewRow[];
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onAction: (row: VoiceReviewRow, action: "approve" | "revoke" | "delete") => void;
+}) {
+  const pending = queue.filter((row) => row.status === "PENDING_REVIEW").length;
+
+  return (
+    <section className="space-y-4">
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Loved-one / custom voice review</h2>
+            <p className="mt-1 max-w-4xl text-sm leading-6 text-muted-foreground">
+              A custom or loved-one voice is never enabled automatically. Each request requires a consent artifact, manual operator approval, and an immutable audit record, with revocation and deletion available at any time.
+            </p>
+          </div>
+          <Badge tone={pending ? "watch" : "good"}>{pending} pending review</Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+          <div className="border-b border-border p-4">
+            <h3 className="font-semibold">Review queue</h3>
+            <p className="text-sm text-muted-foreground">Approve, revoke, or soft-delete a custom voice profile. Every action requires a reason and is audit-logged.</p>
+          </div>
+          {queue.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[920px] border-collapse text-sm whitespace-nowrap">
+                <thead className="bg-secondary text-left text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                  <tr>
+                    {["Subscriber", "Label", "Language", "Status", "Consent", "Submitted", "Actioned", "Controls"].map((header) => (
+                      <th className="border-b border-border px-3 py-2 font-semibold" key={header}>
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {queue.map((row) => (
+                    <tr className="border-b border-border last:border-b-0" key={row.id}>
+                      <td className="px-3 py-2">
+                        <div className="font-medium">{row.userName}</div>
+                        <div className="font-mono text-xs text-muted-foreground">{row.phone}</div>
+                      </td>
+                      <td className="px-3 py-2">{row.label}</td>
+                      <td className="px-3 py-2 font-mono text-xs">{row.languageCode}</td>
+                      <td className="px-3 py-2">
+                        <StatusBadge status={row.status} />
+                      </td>
+                      <td className="max-w-[220px] truncate px-3 py-2">
+                        {row.consentEvidenceUrl ? (
+                          <a className="text-primary underline underline-offset-2" href={row.consentEvidenceUrl} rel="noreferrer" target="_blank">
+                            artifact
+                          </a>
+                        ) : (
+                          <span className="text-muted-foreground">missing</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{formatStableDateTime(row.submittedAt)}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                        {row.approvedAt ? `approved ${formatStableDateTime(row.approvedAt)}` : row.revokedAt ? `revoked ${formatStableDateTime(row.revokedAt)}` : row.deletedAt ? `deleted ${formatStableDateTime(row.deletedAt)}` : "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex gap-1">
+                          <IconButton
+                            disabled={row.status !== "PENDING_REVIEW"}
+                            icon={CheckCircle2}
+                            label="Approve"
+                            onClick={() => onAction(row, "approve")}
+                          />
+                          <IconButton
+                            disabled={row.status !== "APPROVED" && row.status !== "PENDING_REVIEW"}
+                            icon={Pause}
+                            label="Revoke"
+                            onClick={() => onAction(row, "revoke")}
+                          />
+                          <IconButton icon={ShieldAlert} label="Delete" onClick={() => onAction(row, "delete")} />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState title="No voice review requests" detail="Submitted custom voice requests will appear here for manual approval." />
+          )}
+        </section>
+
+        <section className="rounded-lg border border-border bg-card">
+          <div className="border-b border-border p-4">
+            <h3 className="font-semibold">Submit a custom voice request</h3>
+            <p className="text-sm text-muted-foreground">Operator submits on behalf of the subscriber with a stored consent artifact.</p>
+          </div>
+          <form className="space-y-3 p-4 text-sm" onSubmit={onSubmit}>
+            <label className="grid gap-1 font-medium">
+              Subscriber user ID
+              <input className="h-10 rounded-md border border-input bg-background px-3 text-sm" name="userId" placeholder="usr_..." required />
+            </label>
+            <label className="grid gap-1 font-medium">
+              Voice label
+              <input className="h-10 rounded-md border border-input bg-background px-3 text-sm" name="label" placeholder="Dadi's morning voice" required />
+            </label>
+            <label className="grid gap-1 font-medium">
+              Language code
+              <input className="h-10 rounded-md border border-input bg-background px-3 text-sm" name="languageCode" placeholder="hi" />
+            </label>
+            <label className="grid gap-1 font-medium">
+              Consent artifact URL
+              <input className="h-10 rounded-md border border-input bg-background px-3 text-sm" name="consentEvidenceUrl" placeholder="https://..." required type="url" />
+            </label>
+            <label className="grid gap-1 font-medium">
+              Consent text
+              <textarea className="min-h-20 rounded-md border border-input bg-background p-3 text-sm" name="consentText" placeholder="Subscriber agreed to ..." required />
+            </label>
+            <button className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground" type="submit">
+              <Mic2 className="h-4 w-4" />
+              Submit for review
+            </button>
+          </form>
+        </section>
+      </div>
     </section>
   );
 }

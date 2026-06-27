@@ -211,7 +211,7 @@ function buildCostModel(input: {
 export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
   try {
     const prisma = getPrisma();
-    const [users, jobs, content, templates, adminActions, voiceMessages] = await Promise.all([
+    const [users, jobs, content, templates, adminActions, voiceMessages, voiceProfiles] = await Promise.all([
       prisma.user.findMany({
         orderBy: [{ status: "asc" }, { createdAt: "desc" }],
         take: 60,
@@ -255,6 +255,16 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
       }),
       prisma.providerMessage.count({
         where: { channel: "whatsapp_audio", direction: "outbound", user: { source: { not: "demo" } } },
+      }),
+      prisma.voiceProfile.findMany({
+        where: {
+          status: {
+            in: ["PENDING_REVIEW", "APPROVED", "REVOKED"],
+          },
+        },
+        orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+        take: 25,
+        include: { user: { select: { id: true, displayName: true, phone: true } } },
       }),
     ]);
 
@@ -326,6 +336,21 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
       body: template.body,
       variables: template.variables,
     }));
+    const voiceReviewRows = voiceProfiles.map((profile) => ({
+      id: profile.id,
+      userId: profile.user.id,
+      userName: profile.user.displayName,
+      phone: profile.user.phone,
+      label: profile.label,
+      languageCode: profile.languageCode,
+      status: profile.status,
+      consentEvidenceUrl: profile.consentEvidenceUrl,
+      submittedAt: profile.createdAt.toISOString(),
+      approvedBy: profile.approvedBy,
+      approvedAt: profile.approvedAt?.toISOString() ?? null,
+      revokedAt: profile.revokedAt?.toISOString() ?? null,
+      deletedAt: profile.deletedAt?.toISOString() ?? null,
+    }));
     const pilotUsers = userRows.filter((user) => user.source !== "demo");
     const pilotDispatch = dispatchRows.filter((job) => job.source !== "demo");
     const costModel = buildCostModel({
@@ -371,6 +396,10 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
       costModel,
       operations: buildOperations({ users: pilotUsers, dispatch: pilotDispatch, templates: templateRows }),
       templates: templateRows,
+      voiceReview: {
+        queue: voiceReviewRows,
+        pendingCount: voiceReviewRows.filter((row) => row.status === "PENDING_REVIEW").length,
+      },
       audit: adminActions.map((action) => ({
         actor: action.actor,
         type: action.type,
@@ -530,6 +559,26 @@ function buildDemoDashboardSnapshot(): DashboardSnapshot {
     costModel,
     operations: buildOperations({ users, dispatch, templates }),
     templates,
+    voiceReview: {
+      queue: [
+        {
+          id: "demo-voice-1",
+          userId: "demo-0",
+          userName: users[0]?.name ?? "Demo subscriber",
+          phone: users[0]?.phone ?? "+918800009999",
+          label: "Dadi's morning voice",
+          languageCode: "hi",
+          status: "PENDING_REVIEW",
+          consentEvidenceUrl: "https://example.com/consent/dadi-voice-consent.pdf",
+          submittedAt: new Date(Date.now() - 3_600_000).toISOString(),
+          approvedBy: null,
+          approvedAt: null,
+          revokedAt: null,
+          deletedAt: null,
+        },
+      ],
+      pendingCount: 1,
+    },
     audit: [
       {
         actor: "demo",

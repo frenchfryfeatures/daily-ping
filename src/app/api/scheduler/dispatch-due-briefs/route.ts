@@ -6,12 +6,18 @@ import { dispatchDueBriefs } from "@/lib/server/operations";
 export const runtime = "nodejs";
 
 function authorized(request: Request) {
-  const expected = envValue("SCHEDULER_SECRET");
-  if (!expected) return process.env.NODE_ENV !== "production";
-  return request.headers.get("x-scheduler-secret") === expected;
+  const schedulerSecret = envValue("SCHEDULER_SECRET");
+  const cronSecret = envValue("CRON_SECRET");
+  const authHeader = request.headers.get("authorization");
+
+  if (schedulerSecret && request.headers.get("x-scheduler-secret") === schedulerSecret) return true;
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) return true;
+  // No secret configured: allow only outside production for local dev.
+  if (!schedulerSecret && !cronSecret) return process.env.NODE_ENV !== "production";
+  return false;
 }
 
-export async function POST(request: Request) {
+async function runDispatch(request: Request) {
   if (!authorized(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized scheduler request." }, { status: 401 });
   }
@@ -34,4 +40,14 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
+}
+
+// Vercel Cron sends GET with `Authorization: Bearer ${CRON_SECRET}`.
+export async function GET(request: Request) {
+  return runDispatch(request);
+}
+
+// External cron sources send POST with `x-scheduler-secret: ${SCHEDULER_SECRET}`.
+export async function POST(request: Request) {
+  return runDispatch(request);
 }

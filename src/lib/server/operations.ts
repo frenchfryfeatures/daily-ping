@@ -20,9 +20,11 @@ import {
   canDispatchDailyText,
   canRequestVoice,
   canSendDailyText,
+  hasGrantedConsent,
   validateDeliveryProfile,
 } from "@/lib/domain/eligibility";
-import { buildSourceData } from "@/lib/domain/source-data";
+import { resolveSourceData } from "@/lib/domain/source-data-resolver";
+import { canPerformVoiceReviewAction, requiresConsentArtifact } from "@/lib/domain/voice-review";
 import { envValue } from "@/lib/env";
 import {
   dailyNudgeIdempotencyKey,
@@ -290,7 +292,7 @@ async function ensureDailyBrief(user: DispatchUser, dateKey: string, now: Date) 
   if (existing) return existing;
 
   const briefUser = userToBriefUser(user);
-  const sourceData = buildSourceData(briefUser, dateKey);
+  const { data: sourceData, freshness } = await resolveSourceData(briefUser, dateKey, { now });
   return prisma.dailyBrief.create({
     data: {
       userId: user.id,
@@ -312,7 +314,15 @@ async function ensureDailyBrief(user: DispatchUser, dateKey: string, now: Date) 
           kindnessTask: { body: sourceData.kindnessTask },
           powerHours: sourceData.powerHours,
           luckySignals: sourceData.luckySignals,
-          dataFreshness: { mode: "generated", generatedAt: now.toISOString() },
+          dataFreshness: {
+            generatedAt: freshness.generatedAt,
+            sources: {
+              weather: freshness.weather,
+              market: freshness.market,
+              goldSilver: freshness.goldSilver,
+              news: freshness.news,
+            },
+          },
         },
       },
     },
@@ -838,6 +848,226 @@ export async function retryDeliveryJob(input: { jobId: string; actor: string; re
   });
 
   return { status: "retry_completed", jobId: input.jobId, result };
+}
+
+export async function submitCustomVoiceRequest(input: {
+  userId: string;
+  label: string;
+  languageCode: string;
+  consentEvidenceUrl?: string;
+  consentText: string;
+  requester: string;
+}) {
+  const labelCheck = requiresConsentArtifact(input.label);
+  if (!labelCheck.ok) throw new Error(labelCheck.reason);
+  if (!input.consentEvidenceUrl) {
+    throw new Error("A consent artifact URL is required before a custom or loved-one voice can be requested.");
+  }
+  if (!input.consentText || input.consentText.trim().length < 10) {
+    throw new Error("Consent text must capture exactly what the subscriber agreed to.");
+  }
+
+  const prisma = getPrisma();
+  const user = await prisma.user.findUnique({
+    where: { id: input.userId },
+    include: { consents: true, preferences: true },
+  });
+  if (!user) throw new Error("User not found for custom voice request.");
+  if (user.status !== UserStatus.ACTIVE) throw new Error("Only active users can request a custom voice.");
+  if (!hasGrantedConsent(user.consents, "WHATSAPP_VOICE_REPLY")) {
+    throw new Error("Reply-triggered voice consent is required before a custom voice can be requested.");
+  }
+
+  const label = input.label.trim();
+  const languageCode = input.languageCode || user.languageCode;
+  const profile = await prisma.voiceProfile.create({
+    data: {
+      userId: user.id,
+      label,
+      provider: "custom",
+      languageCode,
+      status: VoiceProfileStatus.PENDING_REVIEW,
+      consentEvidenceUrl: input.consentEvidenceUrl,
+    },
+  });
+  await prisma.consentRecord.create({
+    data: {
+      userId: user.id,
+      type: ConsentType.CUSTOM_VOICE,
+      status: ConsentStatus.GRANTED,
+      source: "operator_on_behalf_of_subscriber",
+      language: user.languageCode,
+      consentText: input.consentText.trim(),
+      evidenceUrl: input.consentEvidenceUrl,
+    },
+  });
+  await prisma.userPreference.upsert({
+    where: { userId: user.id },
+    update: { customVoiceEnabled: true },
+    create: { userId: user.id, customVoiceEnabled: true },
+  });
+
+  await audit({
+    userId: user.id,
+    actor: input.requester,
+    action: "voice_profile.request_submitted",
+    target: `voice_profile:${profile.id}`,
+    reason: `Custom voice "${label}" submitted with consent artifact.`,
+    after: {
+      label,
+      languageCode,
+      consentEvidenceUrl: input.consentEvidenceUrl,
+      status: profile.status,
+    },
+  });
+
+  return { voiceProfileId: profile.id, status: profile.status };
+}
+
+export async function listVoiceReviewQueue() {
+  const prisma = getPrisma();
+  return prisma.voiceProfile.findMany({
+    where: {
+      status: {
+        in: [VoiceProfileStatus.PENDING_REVIEW, VoiceProfileStatus.APPROVED, VoiceProfileStatus.REVOKED],
+      },
+    },
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    take: 25,
+    include: { user: { select: { id: true, displayName: true, phone: true } } },
+  });
+}
+
+export async function approveVoiceProfile(input: { voiceProfileId: string; actor: string; reason: string }) {
+  if (!input.reason || input.reason.trim().length < 6) {
+    throw new Error("A reason is required to approve a custom voice.");
+  }
+  const prisma = getPrisma();
+  const before = await prisma.voiceProfile.findUniqueOrThrow({
+    where: { id: input.voiceProfileId },
+    include: { user: { select: { id: true } } },
+  });
+  const decision = canPerformVoiceReviewAction(before.status, "approve");
+  if (!decision.ok) throw new Error(decision.reason);
+
+  const now = new Date();
+  const updated = await prisma.voiceProfile.update({
+    where: { id: input.voiceProfileId },
+    data: { status: VoiceProfileStatus.APPROVED, approvedBy: input.actor, approvedAt: now },
+  });
+  await prisma.adminAction.create({
+    data: {
+      userId: before.userId,
+      actor: input.actor,
+      type: AdminActionType.VOICE_APPROVAL,
+      reason: input.reason,
+      payload: { voiceProfileId: input.voiceProfileId, label: before.label },
+    },
+  });
+  await audit({
+    userId: before.userId,
+    actor: input.actor,
+    action: "voice_profile.approved",
+    target: `voice_profile:${input.voiceProfileId}`,
+    reason: input.reason,
+    before: { status: before.status, label: before.label },
+    after: { status: updated.status, approvedBy: input.actor },
+  });
+  return { voiceProfileId: updated.id, status: updated.status };
+}
+
+export async function revokeVoiceProfile(input: { voiceProfileId: string; actor: string; reason: string }) {
+  if (!input.reason || input.reason.trim().length < 6) {
+    throw new Error("A reason is required to revoke a custom voice.");
+  }
+  const prisma = getPrisma();
+  const before = await prisma.voiceProfile.findUniqueOrThrow({
+    where: { id: input.voiceProfileId },
+    include: { user: { select: { id: true } } },
+  });
+  const decision = canPerformVoiceReviewAction(before.status, "revoke");
+  if (!decision.ok) throw new Error(decision.reason);
+
+  const now = new Date();
+  const updated = await prisma.voiceProfile.update({
+    where: { id: input.voiceProfileId },
+    data: { status: VoiceProfileStatus.REVOKED, revokedAt: now },
+  });
+  await prisma.consentRecord.updateMany({
+    where: { userId: before.userId, type: ConsentType.CUSTOM_VOICE, status: ConsentStatus.GRANTED },
+    data: { status: ConsentStatus.REVOKED, revokedAt: now },
+  });
+  await prisma.userPreference.upsert({
+    where: { userId: before.userId },
+    update: { customVoiceEnabled: false },
+    create: { userId: before.userId, customVoiceEnabled: false },
+  });
+  await prisma.adminAction.create({
+    data: {
+      userId: before.userId,
+      actor: input.actor,
+      type: AdminActionType.VOICE_REVOKE,
+      reason: input.reason,
+      payload: { voiceProfileId: input.voiceProfileId, label: before.label },
+    },
+  });
+  await audit({
+    userId: before.userId,
+    actor: input.actor,
+    action: "voice_profile.revoked",
+    target: `voice_profile:${input.voiceProfileId}`,
+    reason: input.reason,
+    before: { status: before.status, label: before.label },
+    after: { status: updated.status, revokedAt: now.toISOString() },
+  });
+  return { voiceProfileId: updated.id, status: updated.status };
+}
+
+export async function deleteVoiceProfile(input: { voiceProfileId: string; actor: string; reason: string }) {
+  if (!input.reason || input.reason.trim().length < 6) {
+    throw new Error("A reason is required to delete a custom voice profile.");
+  }
+  const prisma = getPrisma();
+  const before = await prisma.voiceProfile.findUniqueOrThrow({
+    where: { id: input.voiceProfileId },
+    include: { user: { select: { id: true } } },
+  });
+  const decision = canPerformVoiceReviewAction(before.status, "delete");
+  if (!decision.ok) throw new Error(decision.reason);
+
+  const now = new Date();
+  const updated = await prisma.voiceProfile.update({
+    where: { id: input.voiceProfileId },
+    data: { status: VoiceProfileStatus.DELETED, deletedAt: now },
+  });
+  await prisma.consentRecord.updateMany({
+    where: { userId: before.userId, type: ConsentType.CUSTOM_VOICE },
+    data: { status: ConsentStatus.REVOKED, revokedAt: now },
+  });
+  await prisma.userPreference.upsert({
+    where: { userId: before.userId },
+    update: { customVoiceEnabled: false },
+    create: { userId: before.userId, customVoiceEnabled: false },
+  });
+  await prisma.adminAction.create({
+    data: {
+      userId: before.userId,
+      actor: input.actor,
+      type: AdminActionType.VOICE_DELETE,
+      reason: input.reason,
+      payload: { voiceProfileId: input.voiceProfileId, label: before.label },
+    },
+  });
+  await audit({
+    userId: before.userId,
+    actor: input.actor,
+    action: "voice_profile.deleted",
+    target: `voice_profile:${input.voiceProfileId}`,
+    reason: input.reason,
+    before: { status: before.status, label: before.label, consentEvidenceUrl: before.consentEvidenceUrl },
+    after: { status: updated.status, deletedAt: now.toISOString() },
+  });
+  return { voiceProfileId: updated.id, status: updated.status };
 }
 
 async function audit(input: {

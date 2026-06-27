@@ -1,5 +1,6 @@
 import { positiveNewsFixtures, type PilotProfile } from "../demo/pilot-fixtures";
-import type { BriefSourceData, BriefUser } from "./brief";
+import type { BriefSourceData, BriefUser, NewsItem } from "./brief";
+import type { GoldSilverFeed, MarketFeed, NewsFeedItem, WeatherFeed } from "../providers/data-feeds";
 
 const colors = ["Emerald", "Saffron", "Sky blue", "Pearl white", "Rose", "Teal"];
 const kindnessTasks = [
@@ -74,4 +75,57 @@ export function buildSourceData(user: BriefUser, localDate: string): BriefSource
     affirmation: affirmations[seed % affirmations.length],
     kindnessTask: kindnessTasks[seed % kindnessTasks.length],
   };
+}
+
+export type DataFreshness = {
+  weather: "live" | "fallback";
+  market: "live" | "fallback";
+  goldSilver: "live" | "fallback";
+  news: "live" | "fallback";
+  generatedAt: string;
+};
+
+export type LiveDataResults = {
+  weather: WeatherFeed | null;
+  market: MarketFeed | null;
+  goldSilver: GoldSilverFeed | null;
+  news: NewsFeedItem[] | null;
+};
+
+function marketTone(changePercent: number): "up" | "flat" | "down" {
+  if (changePercent > 0.15) return "up";
+  if (changePercent < -0.15) return "down";
+  return "flat";
+}
+
+function toNewsItem(item: NewsFeedItem): NewsItem {
+  return {
+    scope: item.scope,
+    title: item.title,
+    summary: item.summary,
+    sourceName: item.sourceName,
+    sentimentScore: item.sentimentScore,
+  };
+}
+
+export function mergeSourceData(seed: BriefSourceData, live: LiveDataResults, generatedAt: string) {
+  const data: BriefSourceData = {
+    ...seed,
+    weather: live.weather ?? seed.weather,
+    market: live.market
+      ? { indexName: live.market.indexName, changePercent: live.market.changePercent, tone: marketTone(live.market.changePercent) }
+      : seed.market,
+    goldSilver: live.goldSilver ?? seed.goldSilver,
+    news: live.news && live.news.length > 0 ? live.news.map(toNewsItem) : seed.news,
+  };
+
+  const freshness: DataFreshness = {
+    weather: live.weather ? "live" : "fallback",
+    market: live.market ? "live" : "fallback",
+    goldSilver: live.goldSilver ? "live" : "fallback",
+    news: live.news && live.news.length > 0 ? "live" : "fallback",
+    generatedAt,
+  };
+
+  return { data, freshness };
 }
