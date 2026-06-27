@@ -1,0 +1,433 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ONBOARDING
+  ACTIVE
+  PAUSED
+  OPTED_OUT
+  ADMIN_HOLD
+}
+
+enum ConsentType {
+  WHATSAPP_DAILY_TEXT
+  WHATSAPP_VOICE_REPLY
+  CUSTOM_VOICE
+  DATA_ENRICHMENT
+}
+
+enum ConsentStatus {
+  GRANTED
+  REVOKED
+}
+
+enum DeliveryKind {
+  DAILY_NUDGE
+  DAILY_TEXT
+  VOICE_AUDIO
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum BriefStatus {
+  DRAFT
+  QUEUED
+  NUDGE_SENT
+  TEXT_SENT
+  VOICE_SENT
+  FAILED
+  SKIPPED
+}
+
+enum StreakStatus {
+  PENDING
+  COUNTED
+  MISSED
+}
+
+enum VoiceProfileStatus {
+  PRESET
+  PENDING_CONSENT
+  PENDING_REVIEW
+  APPROVED
+  REVOKED
+  DELETED
+}
+
+enum NewsCandidateStatus {
+  ACCEPTED
+  REJECTED
+  FALLBACK
+}
+
+enum ContentItemCategory {
+  AFFIRMATION
+  KINDNESS_TASK
+  POSITIVE_NEWS_FALLBACK
+  POWER_HOURS
+  TEMPLATE_FOOTER
+}
+
+enum ContentItemStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum AdminActionType {
+  USER_CREATED
+  USER_UPDATED
+  USER_PAUSED
+  USER_RESUMED
+  USER_OPTED_OUT
+  USER_RESTORED
+  MANUAL_RESEND
+  CONTENT_OVERRIDE
+  VOICE_APPROVAL
+  VOICE_REVOKE
+  BULK_IMPORT
+}
+
+model User {
+  id                    String               @id @default(cuid())
+  phone                 String               @unique
+  instagramHandle       String?
+  snapchatHandle        String?
+  preferredChannels     String[]             @default(["whatsapp"])
+  displayName           String
+  firstName             String
+  city                  String
+  region                String?
+  country               String
+  timezone              String
+  preferredSendTime     String
+  languageCode          String
+  languageName          String
+  dateOfBirth           DateTime?
+  zodiacSign            String?
+  numerologyNumber      Int?
+  marketPreference      String
+  tonePreference        String
+  interests             String[]             @default([])
+  tags                  String[]             @default([])
+  source                String               @default("pilot")
+  status                UserStatus           @default(ONBOARDING)
+  onboardingCompletedAt DateTime?
+  streakStartsOn        DateTime?
+  currentStreak         Int                  @default(0)
+  longestStreak         Int                  @default(0)
+  adminNotes            String?
+  lastDeliveredAt       DateTime?
+  lastVoiceRequestedAt  DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  preferences           UserPreference?
+  onboardingSessions    OnboardingSession[]
+  consents              ConsentRecord[]
+  dailyBriefs           DailyBrief[]
+  streakLedger          StreakLedger[]
+  deliveryJobs          DeliveryJob[]
+  voiceProfiles         VoiceProfile[]
+  providerMessages      ProviderMessage[]
+  adminActions          AdminAction[]
+  auditEvents           AuditEvent[]
+  pilotEntitlement      PilotEntitlement?
+
+  @@index([status])
+  @@index([timezone, preferredSendTime])
+  @@index([country, city])
+}
+
+model UserPreference {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  includeWeather        Boolean  @default(true)
+  includeMarkets        Boolean  @default(true)
+  includeGoldSilver     Boolean  @default(true)
+  includeZodiac         Boolean  @default(true)
+  includeNumerology     Boolean  @default(true)
+  includePositiveNews   Boolean  @default(true)
+  includeKindnessTask   Boolean  @default(true)
+  voiceEnabled          Boolean  @default(true)
+  customVoiceEnabled    Boolean  @default(false)
+  allowDataEnrichment   Boolean  @default(true)
+  quietDays             String[] @default([])
+  fallbackLanguageCode  String   @default("en")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model OnboardingSession {
+  id          String    @id @default(cuid())
+  userId      String?
+  phone       String
+  status      String
+  step        String
+  payload     Json
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([phone])
+  @@index([status])
+}
+
+model ConsentRecord {
+  id          String        @id @default(cuid())
+  userId      String
+  type        ConsentType
+  status      ConsentStatus @default(GRANTED)
+  source      String
+  language    String
+  consentText String
+  ipHash      String?
+  userAgent   String?
+  grantedAt   DateTime      @default(now())
+  revokedAt   DateTime?
+  evidenceUrl String?
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, status])
+}
+
+model DailyBrief {
+  id                  String              @id @default(cuid())
+  userId              String
+  briefDate           String
+  languageCode        String
+  canonicalText       String
+  templateVariables   Json
+  status              BriefStatus         @default(DRAFT)
+  sourceHash          String
+  generatedAt         DateTime            @default(now())
+  textSentAt          DateTime?
+  voiceGeneratedAt    DateTime?
+  voiceSentAt         DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  snapshot            BriefDataSnapshot?
+  deliveryJobs        DeliveryJob[]
+  providerMessages    ProviderMessage[]
+
+  @@unique([userId, briefDate])
+  @@index([briefDate, status])
+}
+
+model BriefDataSnapshot {
+  id              String     @id @default(cuid())
+  briefId         String     @unique
+  weather         Json
+  market          Json
+  goldSilver      Json
+  zodiac          Json
+  numerology      Json
+  positiveNews    Json
+  affirmation     Json
+  kindnessTask    Json
+  powerHours      Json
+  luckySignals    Json
+  dataFreshness   Json
+  createdAt       DateTime   @default(now())
+  brief           DailyBrief @relation(fields: [briefId], references: [id], onDelete: Cascade)
+}
+
+model StreakLedger {
+  id          String       @id @default(cuid())
+  userId      String
+  localDate   String
+  status      StreakStatus @default(PENDING)
+  reason      String
+  countedAt   DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, localDate])
+  @@index([localDate, status])
+}
+
+model DeliveryJob {
+  id             String            @id @default(cuid())
+  userId         String
+  briefId        String?
+  kind           DeliveryKind
+  status         DeliveryStatus    @default(PENDING)
+  dueAt          DateTime
+  localDate      String
+  idempotencyKey String            @unique
+  lastError      String?
+  attemptsCount  Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brief          DailyBrief?       @relation(fields: [briefId], references: [id], onDelete: SetNull)
+  attempts       DeliveryAttempt[]
+
+  @@index([status, dueAt])
+  @@index([userId, localDate])
+}
+
+model DeliveryAttempt {
+  id                String         @id @default(cuid())
+  jobId             String
+  provider          String
+  channel           String
+  status            DeliveryStatus
+  providerMessageId String?
+  payload           Json
+  response          Json?
+  error             String?
+  createdAt         DateTime       @default(now())
+  job               DeliveryJob    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([provider, status])
+}
+
+model VoiceProfile {
+  id                 String             @id @default(cuid())
+  userId             String
+  label              String
+  provider           String
+  providerVoiceId    String?
+  languageCode       String
+  status             VoiceProfileStatus @default(PRESET)
+  consentEvidenceUrl String?
+  approvedBy         String?
+  approvedAt         DateTime?
+  revokedAt          DateTime?
+  deletedAt          DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+model ProviderMessage {
+  id                String   @id @default(cuid())
+  userId            String
+  briefId           String?
+  provider          String
+  providerMessageId String?
+  direction         String
+  channel           String
+  command           String?
+  body              String?
+  payload           Json
+  receivedAt        DateTime?
+  sentAt            DateTime?
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brief             DailyBrief? @relation(fields: [briefId], references: [id], onDelete: SetNull)
+
+  @@index([providerMessageId])
+  @@index([userId, createdAt])
+}
+
+model NewsCandidate {
+  id             String              @id @default(cuid())
+  scope          String
+  region         String?
+  country        String
+  languageCode   String
+  title          String
+  summary        String
+  sourceName     String
+  sourceUrl      String?
+  publishedAt    DateTime?
+  sentimentScore Float
+  status         NewsCandidateStatus
+  rejectionReason String?
+  createdAt      DateTime            @default(now())
+
+  @@index([country, region, status])
+}
+
+model ContentItem {
+  id           String              @id @default(cuid())
+  category     ContentItemCategory
+  languageCode String
+  title        String
+  body         String
+  tags         String[]            @default([])
+  status       ContentItemStatus   @default(ACTIVE)
+  usageCount   Int                 @default(0)
+  createdBy    String
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([category, languageCode, status])
+}
+
+model AdminAction {
+  id          String          @id @default(cuid())
+  userId      String?
+  actor       String
+  type        AdminActionType
+  reason      String
+  payload     Json
+  createdAt   DateTime        @default(now())
+  user        User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([actor, type])
+  @@index([userId, createdAt])
+}
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  actor     String
+  action    String
+  target    String
+  reason    String?
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([target, createdAt])
+  @@index([userId, createdAt])
+}
+
+model PilotEntitlement {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  plan            String   @default("free_pilot")
+  isFreePilot     Boolean  @default(true)
+  voiceAddOn      Boolean  @default(false)
+  customVoiceBeta Boolean  @default(false)
+  startsAt        DateTime @default(now())
+  endsAt          DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WhatsAppTemplate {
+  id             String   @id @default(cuid())
+  name           String
+  languageCode   String
+  category       String
+  status         String
+  body           String
+  variables      String[]
+  lastReviewedAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([name, languageCode])
+}

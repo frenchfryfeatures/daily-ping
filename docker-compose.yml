@@ -1,0 +1,20 @@
+services:
+  daily-ping-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: daily-ping-postgres
+    environment:
+      POSTGRES_USER: dailyping
+      POSTGRES_PASSWORD: dailyping
+      POSTGRES_DB: dailyping
+    ports:
+      - "5435:5432"
+    volumes:
+      - daily-ping-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dailyping -d dailyping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  daily-ping-postgres-data:
