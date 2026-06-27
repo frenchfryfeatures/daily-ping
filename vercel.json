@@ -1,8 +1,0 @@
-{
-  "crons": [
-    {
-      "path": "/api/scheduler/dispatch-due-briefs",
-      "schedule": "*/10 * * * *"
-    }
-  ]
-}
