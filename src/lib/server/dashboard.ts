@@ -365,6 +365,7 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
       voiceMessages,
       costPerUserMonthInr: costModel.scenarios[0]?.costPerUserMonthInr,
     });
+    const adminAuthEnabled = envValue("DASHBOARD_AUTH_ENABLED")?.toLowerCase() !== "false";
 
     return {
       mode: "database",
@@ -374,7 +375,8 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
           ? "Production contains demo records for exploration, but they are isolated from scheduling and excluded from pilot metrics. Onboard an allowlisted pilot user before testing."
           : null,
       safety: {
-        adminProtected: Boolean(envValue("ADMIN_BASIC_USER") && envValue("ADMIN_BASIC_PASSWORD")),
+        adminProtected:
+          adminAuthEnabled && Boolean(envValue("ADMIN_BASIC_USER") && envValue("ADMIN_BASIC_PASSWORD")),
         schedulerProtected: Boolean(envValue("SCHEDULER_SECRET")),
         liveSendsEnabled: envValue("PILOT_LIVE_SENDS_ENABLED")?.toLowerCase() === "true",
         testRecipientConfigured: Boolean(envValue("PILOT_TEST_PHONE")),

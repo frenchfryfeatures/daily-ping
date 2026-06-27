@@ -37,6 +37,10 @@ npm run build
 
 The app defaults to dry-run WhatsApp and TTS behavior until provider credentials are configured and the explicit pilot live-send gate is enabled.
 
+## Dashboard Access
+
+`DASHBOARD_AUTH_ENABLED=true` keeps the dashboard, onboarding, and operator APIs behind HTTP Basic Auth. Set it to `false` only for a temporary test deployment. Public mode exposes subscriber operations and admin controls to anyone with the URL, so re-enable authentication before adding real subscriber data.
+
 ## Cost Controls
 
 The dashboard includes a cost desk for the target operating model: 30 WhatsApp text messages plus 30 voice notes per active user each month. These assumptions are environment-controlled:

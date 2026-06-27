@@ -8,6 +8,9 @@ function unauthorized(message = "Authentication required.") {
 }
 
 export function proxy(request: NextRequest) {
+  const authEnabled = process.env.DASHBOARD_AUTH_ENABLED?.trim().toLowerCase() !== "false";
+  if (!authEnabled) return NextResponse.next();
+
   const expectedUser = process.env.ADMIN_BASIC_USER;
   const expectedPassword = process.env.ADMIN_BASIC_PASSWORD;
   if (!expectedUser || !expectedPassword) {
