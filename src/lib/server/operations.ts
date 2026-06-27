@@ -879,6 +879,39 @@ export async function listUsersForAdmin() {
   }));
 }
 
+export async function getDeliveryJobDetail(jobId: string) {
+  const prisma = getPrisma();
+  const job = await prisma.deliveryJob.findUnique({
+    where: { id: jobId },
+    include: {
+      user: { select: { id: true, displayName: true, phone: true } },
+      brief: { select: { id: true, briefDate: true, status: true, canonicalText: true } },
+      attempts: { orderBy: { createdAt: "desc" } },
+    },
+  });
+  if (!job) throw new Error("Delivery job not found.");
+  return {
+    id: job.id,
+    kind: job.kind,
+    status: job.status,
+    localDate: job.localDate,
+    lastError: job.lastError,
+    attemptsCount: job.attemptsCount,
+    user: job.user,
+    brief: job.brief,
+    attempts: job.attempts.map((attempt) => ({
+      provider: attempt.provider,
+      channel: attempt.channel,
+      status: attempt.status,
+      providerMessageId: attempt.providerMessageId,
+      payload: attempt.payload,
+      response: attempt.response,
+      error: attempt.error,
+      createdAt: attempt.createdAt.toISOString(),
+    })),
+  };
+}
+
 export async function dispatchNowForUser(input: { userId: string; actor: string; reason: string }) {
   if (!input.reason || input.reason.trim().length < 6) {
     throw new Error("A reason is required to send a nudge now.");
