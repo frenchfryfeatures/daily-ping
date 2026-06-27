@@ -12,6 +12,12 @@ export default function TermsPage() {
       updated="27 June 2026"
       summary="The terms that govern your use of the Daily Ping WhatsApp wellness and entertainment pilot."
     >
+      <LegalSection heading="Acceptance">
+        <p>
+          By subscribing to Daily Ping you agree to these terms. If you do not agree, reply <strong>STOP</strong> to opt out.
+        </p>
+      </LegalSection>
+
       <LegalSection heading="Pilot scope">
         <p>
           Daily Ping is a limited pilot that sends one personalised WhatsApp morning briefing per day to opted-in subscribers. These terms apply to all subscribers and dashboard operators during the pilot.
@@ -20,34 +26,40 @@ export default function TermsPage() {
 
       <LegalSection heading="Wellness and entertainment only">
         <p>
-          All content — including weather, market, gold/silver, zodiac, numerology, affirmations, and kindness tasks — is provided for wellness and entertainment. It is not financial, medical, legal, deterministic, political, or fear-based advice. You are responsible for any decisions you make, and Daily Ping makes no guarantees about outcomes, luck, markets, or predictions.
+          All content — including weather, markets, gold/silver, zodiac, numerology, affirmations, and kindness tasks — is provided for wellness and entertainment only. It is <strong>not</strong> financial, medical, legal, political, or predictive advice, and no investment, health, or other decision should be made using it. Daily Ping makes no guarantees about outcomes, luck, markets, or predictions.
         </p>
       </LegalSection>
 
       <LegalSection heading="Opt-in and message frequency">
         <p>
-          You opt in by completing onboarding and confirming WhatsApp daily text and reply-triggered voice consent. The pilot sends one approved Utility template nudge per day. The full briefing and any voice note are sent only after you tap or reply to open the WhatsApp service window.
+          You opt in by completing onboarding and confirming WhatsApp daily text and reply-triggered voice consent. We send one approved template nudge per day. The full briefing and any voice note are sent only after you tap or reply to open the WhatsApp service window.
         </p>
         <p>
-          You can manage frequency and state by replying VOICE, PAUSE, RESUME, LANGUAGE, TIME, PROFILE, or STOP at any time. STOP revokes consent and stops outbound messages.
+          You can manage your state at any time by replying <strong>VOICE</strong>, <strong>PAUSE</strong>, <strong>RESUME</strong>, <strong>LANGUAGE</strong>, <strong>TIME</strong>, <strong>PROFILE</strong>, or <strong>STOP</strong>. <strong>STOP</strong> revokes consent and stops outbound messages.
         </p>
       </LegalSection>
 
-      <LegalSection heading="Voice and custom voice">
+      <LegalSection heading="Voice notes">
         <p>
-          Voice notes use preset voices during the pilot. A custom or loved-one voice is gated behind a consent artifact, manual operator approval, revocation, deletion, and audit. The pilot operator may decline a custom-voice request. Live voice sending depends on provider availability and explicit live-send enablement.
+          Voice notes use preset voices and are reply-triggered: they are sent only after you request audio in-chat. Any custom or loved-one voice is gated behind a consent artifact, manual operator approval, revocation, deletion, and audit, and may be declined by the operator.
         </p>
       </LegalSection>
 
       <LegalSection heading="Acceptable use">
         <p>
-          You agree not to misuse the service, spoof numbers, or attempt to extract operator credentials or other subscribers’ data. Operators agree to capture a reason and accept an immutable audit event for any admin-sensitive edit.
+          You agree not to misuse the service, spoof numbers, or attempt to access operator credentials or other subscribers’ data. Operators agree to capture a reason and accept an immutable audit event for any admin-sensitive edit.
         </p>
       </LegalSection>
 
-      <LegalSection heading="Limitation and jurisdiction">
+      <LegalSection heading="Limitation of liability">
         <p>
-          Daily Ping is provided “as is” without warranties. To the extent permitted by law, liability is limited to the pilot fees paid, if any. These terms are governed by the laws of India and the courts of Mumbai, Maharashtra.
+          Daily Ping is provided “as is” without warranties. To the extent permitted by law, liability is limited to the pilot fees paid, if any.
+        </p>
+      </LegalSection>
+
+      <LegalSection heading="Governing law and contact">
+        <p>
+          These terms are governed by the laws of India and the courts of Mumbai, Maharashtra. For any question, reply on WhatsApp or contact the Daily Ping pilot operator through the dashboard contact channel.
         </p>
       </LegalSection>
     </LegalPage>
