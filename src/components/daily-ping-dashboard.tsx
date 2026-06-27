@@ -263,6 +263,25 @@ export function DailyPingDashboard({ snapshot }: { snapshot: DashboardSnapshot }
     );
   }
 
+  async function sendNow(user: UserRow) {
+    const reason = window.prompt(`Reason for sending ${user.name} a Daily Ping nudge NOW (bypasses the scheduled window)?`);
+    if (!reason) return;
+    setNotice(`Sending nudge to ${user.name} now...`);
+    const response = await fetch(`/api/admin/users/${user.id}/send-now`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    const data = (await response.json()) as { ok: boolean; status?: string; error?: string };
+    setNotice(
+      data.ok
+        ? data.status === "dry_run"
+          ? `${user.name}'s nudge was simulated. Live sends may be locked.`
+          : `${user.name}'s nudge status: ${titleCase(data.status ?? "sent")}.`
+        : data.error ?? "Send-now failed.",
+    );
+  }
+
   async function voiceReviewAction(row: VoiceReviewRow, action: "approve" | "revoke" | "delete") {
     const reason = window.prompt(`Reason for ${action} of ${row.userName}'s "${row.label}" voice profile?`);
     if (!reason) return;
@@ -401,6 +420,7 @@ export function DailyPingDashboard({ snapshot }: { snapshot: DashboardSnapshot }
             <UsersPanel
               onChangeStatus={changeStatus}
               onSaveSchedule={saveSchedule}
+              onSendNow={sendNow}
               onTestNudge={testNudge}
               query={query}
               rows={filteredUsers}
@@ -708,6 +728,7 @@ function UsersPanel({
   setQuery,
   onChangeStatus,
   onSaveSchedule,
+  onSendNow,
   onTestNudge,
   scheduleDrafts,
   setScheduleDraft,
@@ -718,6 +739,7 @@ function UsersPanel({
   setQuery: (value: string) => void;
   onChangeStatus: (row: UserRow, status: string) => void;
   onSaveSchedule: (row: UserRow) => void;
+  onSendNow: (row: UserRow) => void;
   onTestNudge: (row: UserRow) => void;
   scheduleDrafts: Record<string, ScheduleDraft>;
   setScheduleDraft: (row: UserRow, patch: Partial<ScheduleDraft>) => void;
@@ -868,6 +890,16 @@ function UsersPanel({
                     </td>
                     <td className="px-3 py-2">{titleCase(row.lastBriefStatus)}</td>
                     <td className="px-3 py-2">
+                      <button
+                        className="mb-1 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-primary px-2 text-xs font-semibold text-primary-foreground disabled:opacity-40"
+                        disabled={row.source === "demo" || row.status !== "ACTIVE"}
+                        onClick={() => onSendNow(row)}
+                        title="Send the Daily Ping Utility nudge to this user now (bypasses schedule)"
+                        type="button"
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                        Send now
+                      </button>
                       <div className="flex gap-1">
                         <IconButton disabled={row.status === "PAUSED"} icon={Pause} label="Pause" onClick={() => onChangeStatus(row, "PAUSED")} />
                         <IconButton disabled={row.status === "ACTIVE"} icon={Play} label="Resume" onClick={() => onChangeStatus(row, "ACTIVE")} />

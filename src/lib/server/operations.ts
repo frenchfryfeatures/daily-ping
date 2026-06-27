@@ -850,6 +850,90 @@ export async function retryDeliveryJob(input: { jobId: string; actor: string; re
   return { status: "retry_completed", jobId: input.jobId, result };
 }
 
+export async function listUsersForAdmin() {
+  const prisma = getPrisma();
+  const users = await prisma.user.findMany({
+    orderBy: [{ source: "asc" }, { createdAt: "desc" }],
+    take: 100,
+    include: { consents: true, preferences: true },
+  });
+  return users.map((user) => ({
+    id: user.id,
+    displayName: user.displayName,
+    firstName: user.firstName,
+    phone: user.phone,
+    source: user.source,
+    status: user.status,
+    city: user.city,
+    country: user.country,
+    timezone: user.timezone,
+    preferredSendTime: user.preferredSendTime,
+    languageCode: user.languageCode,
+    languageName: user.languageName,
+    marketPreference: user.marketPreference,
+    currentStreak: user.currentStreak,
+    textConsentGranted: hasGrantedConsent(user.consents, "WHATSAPP_DAILY_TEXT"),
+    voiceConsentGranted: hasGrantedConsent(user.consents, "WHATSAPP_VOICE_REPLY"),
+    voiceEnabled: user.preferences?.voiceEnabled ?? true,
+    createdAt: user.createdAt.toISOString(),
+  }));
+}
+
+export async function dispatchNowForUser(input: { userId: string; actor: string; reason: string }) {
+  if (!input.reason || input.reason.trim().length < 6) {
+    throw new Error("A reason is required to send a nudge now.");
+  }
+  const prisma = getPrisma();
+  const user = await prisma.user.findUnique({
+    where: { id: input.userId },
+    include: { consents: true, preferences: true },
+  });
+  if (!user) throw new Error("User not found for send-now.");
+  if (user.source === "demo") throw new Error("Demo users cannot receive provider messages.");
+  if (user.status !== UserStatus.ACTIVE) {
+    throw new Error(`Only ACTIVE users can receive a send-now nudge (current status: ${user.status}).`);
+  }
+  const eligibility = canSendDailyText(user);
+  if (!eligibility.ok) throw new Error(eligibility.reason);
+
+  const now = new Date();
+  const dateKey = getLocalParts(now, user.timezone).dateKey;
+  const result = await dispatchNudgeForUser(user, dateKey, now);
+  await audit({
+    userId: user.id,
+    actor: input.actor,
+    action: "whatsapp.send_now.requested",
+    target: `user:${user.id}`,
+    reason: input.reason,
+    after: result,
+  });
+  return result;
+}
+
+export async function purgeDemoUsers(input: { actor: string; reason: string }) {
+  if (!input.reason || input.reason.trim().length < 6) {
+    throw new Error("A reason is required to purge demo data.");
+  }
+  const prisma = getPrisma();
+  const demoUsers = await prisma.user.findMany({
+    where: { source: "demo" },
+    select: { id: true, displayName: true, phone: true },
+  });
+  if (demoUsers.length === 0) {
+    return { deletedCount: 0, samples: [] as { id: string; displayName: string; phone: string }[] };
+  }
+  const samples = demoUsers.slice(0, 12);
+  const result = await prisma.user.deleteMany({ where: { source: "demo" } });
+  await audit({
+    actor: input.actor,
+    action: "demo_users.purged",
+    target: "users:demo",
+    reason: input.reason,
+    after: { deletedCount: result.count, samples },
+  });
+  return { deletedCount: result.count, samples };
+}
+
 export async function submitCustomVoiceRequest(input: {
   userId: string;
   label: string;
